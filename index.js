@@ -5,12 +5,14 @@ const axios = require("axios");
 
 // --- ⚙️ إعدادات النخبة ---
 const DEVELOPER_NAME = "ELGRANDFT";
-// تم تحويل المفتاح لمتغير بيئة لحمايته
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "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";
 
+// متغير لمنع حلقة إعادة الاتصال اللانهائية
+let isInitialConnection = true;
+
 async function startAI() {
-    // تم تغيير المسار إلى /app/auth_info_new لإجبار البوت على طلب QR جديد
-    const { state, saveCreds } = await useMultiFileAuthState('/app/auth_info_new');
+    // مسار جديد لإجبار البوت على إصدار QR جديد
+    const { state, saveCreds } = await useMultiFileAuthState('/app/auth_info_v3');
 
     const sock = makeWASocket({
         auth: {
@@ -19,13 +21,15 @@ async function startAI() {
         },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        connectTimeoutMs: 60000, // زيادة وقت الانتظار
+        defaultQueryTimeoutMs: 0,
+        keepAliveIntervalMs: 10000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        // هذا السطر سيطبع كل تحديث في السجلات لكي نعرف ماذا يحدث
         console.log('🔄 التحديث:', JSON.stringify(update));
 
         const { connection, lastDisconnect, qr } = update;
@@ -37,15 +41,22 @@ async function startAI() {
         
         if (connection === 'open') {
             console.log(`\n✅ تم الاتصال بنجاح! نظام المطور عبد الصمد جاهز للرد.`);
+            isInitialConnection = false; // تم الاتصال بنجاح، اسمح بإعادة الاتصال لاحقاً
         }
         
         if (connection === 'close') {
+            // إذا كان الاتصال الأولي، لا تقم بإعادة الاتصال، انتظر مسح QR
+            if (isInitialConnection) {
+                console.log('⏳ الاتصال الأولي مغلق، في انتظار مسح رمز QR، لن يتم إعادة الاتصال تلقائياً.');
+                return;
+            }
+
             const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) {
                 console.log("🔄 إعادة الاتصال...");
                 startAI();
             } else {
-                console.log("❌ تم تسجيل الخروج. احذف مجلد auth_info_new وأعد النشر.");
+                console.log("❌ تم تسجيل الخروج. احذف مجلد الجلسة وأعد النشر.");
             }
         }
     });
@@ -53,7 +64,7 @@ async function startAI() {
     // --- 🤖 الجزء المسؤول عن الرد ---
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return; // لا يرد على نفسه
+        if (!msg.message || msg.key.fromMe) return;
 
         const from = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
@@ -61,7 +72,6 @@ async function startAI() {
         if (text) {
             console.log(`📩 رسالة جديدة من ${from}: ${text}`);
             try {
-                // طلب الرد من ذكاء Groq الاصطناعي
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
                     model: "llama-3.3-70b-versatile",
                     messages: [
@@ -73,8 +83,6 @@ async function startAI() {
                 });
 
                 const reply = res.data.choices[0].message.content;
-                
-                // إرسال الرد للواتساب
                 await sock.sendMessage(from, { text: reply }, { quoted: msg });
                 console.log(`✅ تم الرد على ${from}`);
                 
