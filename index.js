@@ -5,10 +5,12 @@ const axios = require("axios");
 
 // --- ⚙️ إعدادات النخبة ---
 const DEVELOPER_NAME = "ELGRANDFT";
-const GROQ_API_KEY = "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";
+// تم تحويل المفتاح لمتغير بيئة لحمايته
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "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";
 
 async function startAI() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    // تم تغيير المسار إلى /app/auth_info_new لإجبار البوت على طلب QR جديد
+    const { state, saveCreds } = await useMultiFileAuthState('/app/auth_info_new');
 
     const sock = makeWASocket({
         auth: {
@@ -23,20 +25,32 @@ async function startAI() {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
+        // هذا السطر سيطبع كل تحديث في السجلات لكي نعرف ماذا يحدث
+        console.log('🔄 التحديث:', JSON.stringify(update));
+
         const { connection, lastDisconnect, qr } = update;
+        
         if (qr) {
-            console.log(`👉 الرابط: https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
+            console.log(`\n👉👉👉 [رابط الـ QR] 👈👈👈`);
+            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300\n`);
         }
+        
         if (connection === 'open') {
             console.log(`\n✅ تم الاتصال بنجاح! نظام المطور عبد الصمد جاهز للرد.`);
         }
+        
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startAI();
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) {
+                console.log("🔄 إعادة الاتصال...");
+                startAI();
+            } else {
+                console.log("❌ تم تسجيل الخروج. احذف مجلد auth_info_new وأعد النشر.");
+            }
         }
     });
 
-    // --- 🤖 الجزء المسؤول عن الرد (الذي كان ينقصك) ---
+    // --- 🤖 الجزء المسؤول عن الرد ---
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message || msg.key.fromMe) return; // لا يرد على نفسه
@@ -62,9 +76,10 @@ async function startAI() {
                 
                 // إرسال الرد للواتساب
                 await sock.sendMessage(from, { text: reply }, { quoted: msg });
+                console.log(`✅ تم الرد على ${from}`);
                 
             } catch (e) {
-                console.log("❌ خطأ في معالجة الرد عبر API");
+                console.log("❌ خطأ في معالجة الرد عبر API:", e.message);
                 await sock.sendMessage(from, { text: "⚠️ عذراً يا زعيم، واجهت مشكلة بسيطة في معالجة طلبك." });
             }
         }
