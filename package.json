@@ -1,0 +1,18 @@
+{
+  "name": "elgrandft-ai-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp AI Bot using Baileys and Groq API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.0",
+    "@hapi/boom": "^10.0.1",
+    "axios": "^1.7.0",
+    "pino": "^8.19.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
